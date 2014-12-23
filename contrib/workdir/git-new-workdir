@@ -52,26 +52,45 @@ then
 		"a complete repository."
 fi
 
+# don't modify an existing directory, unless it's empty
+if test -d "$new_workdir" && test $(ls -a1 "$new_workdir/." | wc -l) -ne 2
+then
+	die "destination directory '$new_workdir' is not empty."
+fi
+
 # make sure the links in the workdir have full paths to the original repo
 git_dir=$(cd "$git_dir" && pwd) || exit 1
 
-# don't recreate a workdir over an existing directory, unless it's empty
-if test -d "$new_workdir"
-then
-	if test $(ls -a1 "$new_workdir/." | wc -l) -ne 2
-	then
-		die "destination directory '$new_workdir' is not empty."
-	fi
-	cleandir="$new_workdir/.git"
-else
-	cleandir="$new_workdir"
+new_git_dir="$new_workdir/.git"
+
+# if $orig_git is a .git file with a 'gitdir' entry (as is the case for
+# submodules), have the new git dir follow that same pattern.  otherwise
+# the 'worktree' entry in .git/config, which is a relative path, will
+# not resolve properly because we're not in the expected subdirectory.
+gitdir_text=$(sed -ne 's/^gitdir: *//p' "$orig_git/.git" 2>/dev/null)
+if test -n "$gitdir_text"; then
+	ln -s "$orig_git/.git" "$new_workdir/.git" || failed
+	new_git_dir="$new_workdir/$gitdir_text"
 fi
 
-mkdir -p "$new_workdir/.git" || failed
-cleandir=$(cd "$cleandir" && pwd) || failed
+# if new_workdir already exists, leave it along in case of error
+if ! test -d "$new_workdir"
+then
+	clean_new_workdir=true
+fi
 
+mkdir -p "$new_git_dir" || failed
+
+cleandir=$(cd "$cleandir" && pwd) || failed
 cleanup () {
-	rm -rf "$cleandir"
+	if test z"$clean_new_workdir" = ztrue
+	then
+		rm -rf "$new_workdir"
+	fi
+	# this may (or may not) be a noop if new_workdir was already deleted.
+	rm -rf "$new_git_dir"
+	# this is a noop unless .git is a 'gitdir: ...' file.
+	rm -f "$new_workdir/.git"
 }
 siglist="0 1 2 15"
 trap cleanup $siglist
@@ -84,22 +103,20 @@ do
 	# create a containing directory if needed
 	case $x in
 	*/*)
-		mkdir -p "$new_workdir/.git/${x%/*}"
+		mkdir -p "$new_git_dir/${x%/*}"
 		;;
 	esac
 
-	ln -s "$git_dir/$x" "$new_workdir/.git/$x" || failed
+	ln -s "$git_dir/$x" "$new_git_dir/$x" || failed
 done
 
-# commands below this are run in the context of the new workdir
-cd "$new_workdir" || failed
-
 # copy the HEAD from the original repository as a default branch
-cp "$git_dir/HEAD" .git/HEAD || failed
+cp "$git_dir/HEAD" "$new_git_dir/HEAD" || failed
 
 # the workdir is set up.  if the checkout fails, the user can fix it.
 trap - $siglist
 
 # checkout the branch (either the same as HEAD from the original repository,
-# or the one that was asked for)
+# or the one that was asked for).  we must be in the new workdir for this.
+cd "$new_workdir" || failed
 git checkout -f $branch
