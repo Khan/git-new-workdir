@@ -67,13 +67,13 @@ new_git_dir="$new_workdir/.git"
 # submodules), have the new git dir follow that same pattern.  otherwise
 # the 'worktree' entry in .git/config, which is a relative path, will
 # not resolve properly because we're not in the expected subdirectory.
-gitdir_text=$(sed -ne 's/^gitdir: *//p' "$orig_git/.git" 2>/dev/null)
-if test -n "$gitdir_text"; then
+gitdir_dest=$(sed -ne 's/^gitdir: *//p' "$orig_git/.git" 2>/dev/null)
+if test -n "$gitdir_dest"; then
 	ln -s "$orig_git/.git" "$new_workdir/.git" || failed
-	new_git_dir="$new_workdir/$gitdir_text"
+	new_git_dir="$new_workdir/$gitdir_dest"
 fi
 
-# if new_workdir already exists, leave it along in case of error
+# if new_workdir already exists, leave it alone in case of error
 if ! test -d "$new_workdir"
 then
 	clean_new_workdir=true
