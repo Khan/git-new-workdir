@@ -67,6 +67,7 @@ new_git_dir="$new_workdir/.git"
 # submodules), have the new git dir follow that same pattern.  otherwise
 # the 'worktree' entry in .git/config, which is a relative path, will
 # not resolve properly because we're not in the expected subdirectory.
+# (NOTE: This is a KA-specific change, and differs from upstream behavior.)
 gitdir_dest=$(sed -ne 's/^gitdir: *//p' "$orig_git/.git" 2>/dev/null)
 if test -n "$gitdir_dest"; then
 	ln -s "$orig_git/.git" "$new_workdir/.git" || failed
@@ -95,19 +96,25 @@ cleanup () {
 siglist="0 1 2 15"
 trap cleanup $siglist
 
-# create the links to the original repo.  explicitly exclude index, HEAD and
-# logs/HEAD from the list since they are purely related to the current working
-# directory, and should not be shared.
-for x in config refs logs/refs objects info hooks packed-refs remotes rr-cache svn bigfile
+# create the links to the original repo.  our goal is to link just objects,
+# and let everything else be per-repo.  But we need to share the config
+# as well so every repo sees the same list of submodules.  And hooks too
+# I guess.
+for x in config objects hooks svn bigfile
 do
-	# create a containing directory if needed
-	case $x in
-	*/*)
-		mkdir -p "$new_git_dir/${x%/*}"
-		;;
-	esac
-
 	ln -s "$git_dir/$x" "$new_git_dir/$x" || failed
+done
+
+# for everything else, create a copy of the original repo.  This
+# *should* act the same as if you checked out the repo from scratch
+# and got it into the same state as the source location.
+# (NOTE: This is a KA-specific change, and differs from upstream behavior.)
+for x in refs logs info packed-refs remotes rr-cache
+do
+	if [ -e "$git_dir/$x" ]
+	then
+		cp -a "$git_dir/$x" "$new_git_dir/" || failed
+	fi
 done
 
 # copy the HEAD from the original repository as a default branch
